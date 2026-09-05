@@ -21,6 +21,7 @@ app.use(
       'http://localhost:5173',
       'http://localhost:5174',
       'http://localhost:5175',
+      'https://leensfoam-new-website.vercel.app'
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -73,15 +74,20 @@ app.use('/api/products', productRoutes);
 
 
 // =====================================================
-// START SERVER
+// START SERVER LOCALLY
 // =====================================================
 
-if (require.main === module) {
-  const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5000;
 
+if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
+
+
+// =====================================================
+// EXPORT FOR VERCEL
+// =====================================================
 
 module.exports = app;
