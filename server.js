@@ -4,7 +4,6 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
-const db = require('./config/db');
 const authRoutes = require('./routes/auth');
 const productRoutes = require('./routes/products');
 
@@ -54,7 +53,7 @@ app.use(
 
 app.get('/', (req, res) => {
   res.json({
-    message: 'Leensfoam backend is running',
+    message: 'Leensfoam backend is running'
   });
 });
 
@@ -74,20 +73,20 @@ app.use('/api/products', productRoutes);
 
 
 // =====================================================
-// START SERVER LOCALLY
+// EXPORT APP FOR VERCEL
 // =====================================================
 
-const PORT = process.env.PORT || 5000;
+module.exports = app;
+
+
+// =====================================================
+// LOCAL DEVELOPMENT ONLY
+// =====================================================
 
 if (require.main === module) {
+  const PORT = process.env.PORT || 5000;
+
   app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
-
-
-// =====================================================
-// EXPORT FOR VERCEL
-// =====================================================
-
-module.exports = app;
