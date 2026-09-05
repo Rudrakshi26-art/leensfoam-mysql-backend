@@ -9,32 +9,31 @@ const productRoutes = require('./routes/products');
 
 const app = express();
 
-
 // =====================================================
 // CORS
 // =====================================================
 
-app.use(
-  cors({
-    origin: [
-      'http://localhost:5173',
-      'http://localhost:5174',
-      'http://localhost:5175',
-      'https://leensfoam-new-website.vercel.app',
-      'https://leensfoam-website-gdze5ldmy-rudrakshi26-arts-projects.vercel.app'
-    ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  })
-);
+const corsOptions = {
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:5175',
+    'https://leensfoam-website.vercel.app'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
 
+app.use(cors(corsOptions));
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
 
 // =====================================================
 // BODY PARSING
 // =====================================================
 
 app.use(express.json());
-
 
 // =====================================================
 // SERVE PUBLIC ASSETS
@@ -47,7 +46,6 @@ app.use(
   )
 );
 
-
 // =====================================================
 // TEST BACKEND
 // =====================================================
@@ -58,20 +56,17 @@ app.get('/', (req, res) => {
   });
 });
 
-
 // =====================================================
 // AUTH ROUTES
 // =====================================================
 
 app.use('/api/auth', authRoutes);
 
-
 // =====================================================
 // PRODUCT ROUTES
 // =====================================================
 
 app.use('/api/products', productRoutes);
-
 
 // =====================================================
 // START SERVER
