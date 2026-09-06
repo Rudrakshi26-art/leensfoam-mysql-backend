@@ -10,7 +10,7 @@ const router = express.Router();
 
 const uploadFolder = path.join(
   __dirname,
-  '../../public/assets/products'
+  '../public/assets/products'
 );
 
 if (!fs.existsSync(uploadFolder)) {
