@@ -40,7 +40,7 @@ app.use(express.json());
 app.use(
   '/assets',
   express.static(
-    path.join(__dirname, '..public/assets')
+    path.join(__dirname, 'public/assets')
   )
 );
 
