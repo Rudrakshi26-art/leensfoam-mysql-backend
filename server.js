@@ -4,40 +4,38 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
+const connectDB = require('./config/db');
+
 const authRoutes = require('./routes/auth');
 const productRoutes = require('./routes/products');
 
 const app = express();
 
-// =====================================================
-// CORS
-// =====================================================
+// Connect to MongoDB
+connectDB();
 
-const corsOptions = {
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'http://localhost:5175',
-    'https://leensfoam-website.vercel.app'
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-};
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  process.env.FRONTEND_URL,
+].filter(Boolean);
 
-app.use(cors(corsOptions));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
 
-// Handle preflight requests
-app.options('*', cors(corsOptions));
-
-// =====================================================
-// BODY PARSING
-// =====================================================
+      return callback(new Error('CORS origin not allowed'));
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
 
 app.use(express.json());
-
-// =====================================================
-// SERVE PUBLIC ASSETS
-// =====================================================
 
 app.use(
   '/assets',
@@ -46,31 +44,14 @@ app.use(
   )
 );
 
-// =====================================================
-// TEST BACKEND
-// =====================================================
-
 app.get('/', (req, res) => {
   res.json({
-    message: 'Leensfoam backend is running'
+    message: 'Leensfoam backend is running',
   });
 });
 
-// =====================================================
-// AUTH ROUTES
-// =====================================================
-
 app.use('/api/auth', authRoutes);
-
-// =====================================================
-// PRODUCT ROUTES
-// =====================================================
-
 app.use('/api/products', productRoutes);
-
-// =====================================================
-// START SERVER
-// =====================================================
 
 const PORT = process.env.PORT || 5000;
 

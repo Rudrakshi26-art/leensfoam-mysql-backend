@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-const db = require('../config/db');
+const { connectMongo } = require('../config/mongo');
 
 const router = express.Router();
 
@@ -11,26 +11,25 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Check required fields
     if (!email || !password) {
       return res.status(400).json({
-        message: 'Email and password are required'
+        message: 'Email and password are required',
       });
     }
 
-    // Find admin
-    const [admins] = await db.execute(
-      'SELECT * FROM admins WHERE email = ?',
-      [email]
-    );
+    // Connect to MongoDB
+    const db = await connectMongo();
 
-    if (admins.length === 0) {
+    // Find admin in MongoDB
+    const admin = await db.collection('admins').findOne({
+      email: email.trim().toLowerCase(),
+    });
+
+    if (!admin) {
       return res.status(401).json({
-        message: 'Invalid email or password'
+        message: 'Invalid email or password',
       });
     }
-
-    const admin = admins[0];
 
     // Check password
     const passwordMatch = await bcrypt.compare(
@@ -40,19 +39,28 @@ router.post('/login', async (req, res) => {
 
     if (!passwordMatch) {
       return res.status(401).json({
-        message: 'Invalid email or password'
+        message: 'Invalid email or password',
+      });
+    }
+
+    // Check JWT secret
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET is not configured');
+
+      return res.status(500).json({
+        message: 'Server configuration error',
       });
     }
 
     // Create JWT token
     const token = jwt.sign(
       {
-        id: admin.id,
-        email: admin.email
+        id: admin._id.toString(),
+        email: admin.email,
       },
       process.env.JWT_SECRET,
       {
-        expiresIn: '1d'
+        expiresIn: '1d',
       }
     );
 
@@ -60,17 +68,16 @@ router.post('/login', async (req, res) => {
       message: 'Login successful',
       token,
       admin: {
-        id: admin.id,
+        id: admin._id.toString(),
         name: admin.name,
-        email: admin.email
-      }
+        email: admin.email,
+      },
     });
-
   } catch (error) {
     console.error('Login error:', error);
 
     res.status(500).json({
-      message: 'Server error'
+      message: 'Server error',
     });
   }
 });

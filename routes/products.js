@@ -3,30 +3,19 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-const db = require('../config/db');
+const { connectMongo } = require('../config/mongo');
 const authenticateToken = require('../middleware/auth');
 
 const router = express.Router();
-
-
-// =====================================================
-// IMAGE UPLOAD SETUP
-// =====================================================
 
 const uploadFolder = path.join(
   __dirname,
   '../../public/assets/products'
 );
 
-// Create folder if it doesn't exist
 if (!fs.existsSync(uploadFolder)) {
   fs.mkdirSync(uploadFolder, { recursive: true });
 }
-
-
-// =====================================================
-// STORE UPLOADED IMAGES WITH UNIQUE FILENAMES
-// =====================================================
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -41,58 +30,163 @@ const storage = multer.diskStorage({
       extension
     );
 
-    // Make filename safe for URLs/filesystems
     const safeName = originalName
       .replace(/[^a-zA-Z0-9-_]/g, '-')
       .replace(/-+/g, '-')
       .toLowerCase();
 
-    // Add timestamp so existing files are NEVER overwritten
-    const uniqueName = `${safeName}-${Date.now()}${extension}`;
-
-    cb(null, uniqueName);
-  }
+    cb(
+      null,
+      `${safeName}-${Date.now()}${extension}`
+    );
+  },
 });
-
-
-// =====================================================
-// ALLOW ONLY IMAGE FILES
-// =====================================================
 
 const fileFilter = (req, file, cb) => {
   const allowedTypes = [
     'image/jpeg',
     'image/jpg',
     'image/png',
-    'image/webp'
+    'image/webp',
   ];
 
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Only JPG, PNG and WEBP images are allowed'));
+    cb(
+      new Error(
+        'Only JPG, PNG and WEBP images are allowed'
+      )
+    );
   }
 };
-
 
 const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024
+    fileSize: 5 * 1024 * 1024,
+  },
+});
+
+const getImageUrl = (req, filename) => {
+  if (!filename) return null;
+
+  const baseUrl =
+    process.env.PUBLIC_API_URL ||
+    `${req.protocol}://${req.get('host')}`;
+
+  return `${baseUrl}/assets/products/${encodeURIComponent(
+    filename
+  )}`;
+};
+
+
+// ===============================
+// GET ALL PRODUCTS
+// ===============================
+
+router.get('/', async (req, res) => {
+  try {
+    const db = await connectMongo();
+
+    const products = await db
+      .collection('products')
+      .find({})
+      .sort({ created_at: -1 })
+      .toArray();
+
+    res.json(
+      products.map((product) => ({
+        ...product,
+
+        _id: product._id.toString(),
+
+        desc: product.description,
+
+        imageUrl: getImageUrl(
+          req,
+          product.image
+        ),
+      }))
+    );
+  } catch (error) {
+    console.error(
+      'Get products error:',
+      error
+    );
+
+    res.status(500).json({
+      message: 'Failed to get products',
+    });
   }
 });
 
 
-// =====================================================
-// GET ALL PRODUCTS
-// Public route
-// =====================================================
+// ===============================
+// UPLOAD PRODUCT IMAGE
+// ===============================
 
-router.get('/', async (req, res) => {
-  try {
-    const [products] = await db.execute(
-      `SELECT 
+router.post(
+  '/upload-image',
+  authenticateToken,
+  (req, res) => {
+    upload.single('image')(
+      req,
+      res,
+      (error) => {
+        if (error) {
+          console.error(
+            'Image upload error:',
+            error
+          );
+
+          return res.status(400).json({
+            message:
+              error.message ||
+              'Failed to upload image',
+          });
+        }
+
+        if (!req.file) {
+          return res.status(400).json({
+            message: 'No image uploaded',
+          });
+        }
+
+        const imageUrl = getImageUrl(
+          req,
+          req.file.filename
+        );
+
+        res.status(201).json({
+          message:
+            'Image uploaded successfully',
+
+          filename: req.file.filename,
+
+          path: `/assets/products/${req.file.filename}`,
+
+          imageUrl,
+        });
+      }
+    );
+  }
+);
+
+
+// ===============================
+// ADD PRODUCT
+// ===============================
+
+router.post(
+  '/',
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const db = await connectMongo();
+
+      const {
         id,
         cat,
         tag,
@@ -101,235 +195,222 @@ router.get('/', async (req, res) => {
         image,
         c1,
         c2,
-        created_at,
-        updated_at
-      FROM products
-      ORDER BY created_at DESC`
-    );
+      } = req.body;
 
-    res.json(products);
-
-  } catch (error) {
-    console.error('Get products error:', error);
-
-    res.status(500).json({
-      message: 'Failed to get products'
-    });
-  }
-});
-
-
-// =====================================================
-// UPLOAD PRODUCT IMAGE
-// Admin only
-// =====================================================
-
-router.post(
-  '/upload-image',
-  authenticateToken,
-  (req, res) => {
-
-    upload.single('image')(req, res, (error) => {
-
-      if (error) {
-        console.error('Image upload error:', error);
-
+      if (
+        !id ||
+        !cat ||
+        !tag ||
+        !name ||
+        !description
+      ) {
         return res.status(400).json({
-          message: error.message || 'Failed to upload image'
+          message:
+            'id, cat, tag, name and description are required',
         });
       }
 
-      try {
-
-        if (!req.file) {
-          return res.status(400).json({
-            message: 'No image uploaded'
-          });
-        }
-
-        res.status(201).json({
-          message: 'Image uploaded successfully',
-          filename: req.file.filename,
-          path: `/assets/products/${req.file.filename}`
+      // Check duplicate product ID
+      const existingProduct =
+        await db.collection('products').findOne({
+          id,
         });
 
-      } catch (error) {
-
-        console.error('Image upload error:', error);
-
-        res.status(500).json({
-          message: 'Failed to upload image'
+      if (existingProduct) {
+        return res.status(409).json({
+          message: 'Product ID already exists',
         });
-
       }
 
-    });
+      const now = new Date()
+        .toISOString()
+        .replace('T', ' ')
+        .replace('Z', '');
 
-  }
-);
-
-
-// =====================================================
-// ADD PRODUCT
-// Admin only
-// =====================================================
-
-router.post('/', authenticateToken, async (req, res) => {
-  try {
-    const {
-      id,
-      cat,
-      tag,
-      name,
-      description,
-      image,
-      c1,
-      c2
-    } = req.body;
-
-    if (!id || !cat || !tag || !name || !description) {
-      return res.status(400).json({
-        message: 'id, cat, tag, name and description are required'
-      });
-    }
-
-    const [result] = await db.execute(
-      `INSERT INTO products
-      (id, cat, tag, name, description, image, c1, c2)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+      const product = {
         id,
         cat,
         tag,
         name,
         description,
-        image || null,
-        c1 || null,
-        c2 || null
-      ]
-    );
+        image: image || null,
+        c1: c1 || null,
+        c2: c2 || null,
+        created_at: now,
+        updated_at: now,
+      };
 
-    res.status(201).json({
-      message: 'Product created successfully',
-      productId: id
-    });
+      await db
+        .collection('products')
+        .insertOne(product);
 
-  } catch (error) {
-    console.error('Create product error:', error);
+      res.status(201).json({
+        message:
+          'Product created successfully',
 
-    if (error.code === 'ER_DUP_ENTRY') {
-      return res.status(409).json({
-        message: 'Product ID already exists'
+        product: {
+          ...product,
+          desc: product.description,
+          imageUrl: getImageUrl(
+            req,
+            product.image
+          ),
+        },
+      });
+    } catch (error) {
+      console.error(
+        'Create product error:',
+        error
+      );
+
+      res.status(500).json({
+        message: 'Failed to create product',
       });
     }
-
-    res.status(500).json({
-      message: 'Failed to create product'
-    });
   }
-});
+);
 
 
-// =====================================================
+// ===============================
 // UPDATE PRODUCT
-// Admin only
-// =====================================================
+// ===============================
 
-router.put('/:id', authenticateToken, async (req, res) => {
-  try {
-    const productId = req.params.id;
+router.put(
+  '/:id',
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const db = await connectMongo();
 
-    const {
-      cat,
-      tag,
-      name,
-      description,
-      image,
-      c1,
-      c2
-    } = req.body;
+      const productId = req.params.id;
 
-    if (!cat || !tag || !name || !description) {
-      return res.status(400).json({
-        message: 'cat, tag, name and description are required'
-      });
-    }
-
-    const [result] = await db.execute(
-      `UPDATE products
-      SET
-        cat = ?,
-        tag = ?,
-        name = ?,
-        description = ?,
-        image = ?,
-        c1 = ?,
-        c2 = ?
-      WHERE id = ?`,
-      [
+      const {
         cat,
         tag,
         name,
         description,
-        image || null,
-        c1 || null,
-        c2 || null,
-        productId
-      ]
-    );
+        image,
+        c1,
+        c2,
+      } = req.body;
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({
-        message: 'Product not found'
+      if (
+        !cat ||
+        !tag ||
+        !name ||
+        !description
+      ) {
+        return res.status(400).json({
+          message:
+            'cat, tag, name and description are required',
+        });
+      }
+
+      const updated_at = new Date()
+        .toISOString()
+        .replace('T', ' ')
+        .replace('Z', '');
+
+      const result = await db
+        .collection('products')
+        .updateOne(
+          { id: productId },
+          {
+            $set: {
+              cat,
+              tag,
+              name,
+              description,
+              image: image || null,
+              c1: c1 || null,
+              c2: c2 || null,
+              updated_at,
+            },
+          }
+        );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({
+          message: 'Product not found',
+        });
+      }
+
+      const updatedProduct =
+        await db.collection('products').findOne({
+          id: productId,
+        });
+
+      res.json({
+        message:
+          'Product updated successfully',
+
+        product: {
+          ...updatedProduct,
+
+          _id: updatedProduct._id.toString(),
+
+          desc: updatedProduct.description,
+
+          imageUrl: getImageUrl(
+            req,
+            updatedProduct.image
+          ),
+        },
+      });
+    } catch (error) {
+      console.error(
+        'Update product error:',
+        error
+      );
+
+      res.status(500).json({
+        message: 'Failed to update product',
       });
     }
-
-    res.json({
-      message: 'Product updated successfully'
-    });
-
-  } catch (error) {
-    console.error('Update product error:', error);
-
-    res.status(500).json({
-      message: 'Failed to update product'
-    });
   }
-});
+);
 
 
-// =====================================================
+// ===============================
 // DELETE PRODUCT
-// Admin only
-// =====================================================
+// ===============================
 
-router.delete('/:id', authenticateToken, async (req, res) => {
-  try {
-    const productId = req.params.id;
+router.delete(
+  '/:id',
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const db = await connectMongo();
 
-    const [result] = await db.execute(
-      'DELETE FROM products WHERE id = ?',
-      [productId]
-    );
+      const productId = req.params.id;
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({
-        message: 'Product not found'
+      const result = await db
+        .collection('products')
+        .deleteOne({
+          id: productId,
+        });
+
+      if (result.deletedCount === 0) {
+        return res.status(404).json({
+          message: 'Product not found',
+        });
+      }
+
+      res.json({
+        message:
+          'Product deleted successfully',
+      });
+    } catch (error) {
+      console.error(
+        'Delete product error:',
+        error
+      );
+
+      res.status(500).json({
+        message: 'Failed to delete product',
       });
     }
-
-    res.json({
-      message: 'Product deleted successfully'
-    });
-
-  } catch (error) {
-    console.error('Delete product error:', error);
-
-    res.status(500).json({
-      message: 'Failed to delete product'
-    });
   }
-});
-
+);
 
 module.exports = router;
