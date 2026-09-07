@@ -3,7 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-const { connectMongo } = require('../config/mongo');
+const { pool } = require('../config/db');
 const authenticateToken = require('../middleware/auth');
 
 const router = express.Router();
@@ -88,19 +88,16 @@ const getImageUrl = (req, filename) => {
 
 router.get('/', async (req, res) => {
   try {
-    const db = await connectMongo();
-
-    const products = await db
-      .collection('products')
-      .find({})
-      .sort({ created_at: -1 })
-      .toArray();
+    const [products] = await pool.execute(
+      'SELECT * FROM products ORDER BY created_at DESC'
+    );
 
     res.json(
       products.map((product) => ({
         ...product,
 
-        _id: product._id.toString(),
+        // Keep _id for frontend compatibility
+        _id: String(product.id),
 
         desc: product.description,
 
@@ -184,8 +181,6 @@ router.post(
   authenticateToken,
   async (req, res) => {
     try {
-      const db = await connectMongo();
-
       const {
         id,
         cat,
@@ -211,38 +206,39 @@ router.post(
       }
 
       // Check duplicate product ID
-      const existingProduct =
-        await db.collection('products').findOne({
-          id,
-        });
+      const [existingProducts] = await pool.execute(
+        'SELECT id FROM products WHERE id = ? LIMIT 1',
+        [id]
+      );
 
-      if (existingProduct) {
+      if (existingProducts.length > 0) {
         return res.status(409).json({
           message: 'Product ID already exists',
         });
       }
 
-      const now = new Date()
-        .toISOString()
-        .replace('T', ' ')
-        .replace('Z', '');
+      const [result] = await pool.execute(
+        `INSERT INTO products
+        (id, cat, tag, name, description, image, c1, c2)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          cat,
+          tag,
+          name,
+          description,
+          image || null,
+          c1 || null,
+          c2 || null,
+        ]
+      );
 
-      const product = {
-        id,
-        cat,
-        tag,
-        name,
-        description,
-        image: image || null,
-        c1: c1 || null,
-        c2: c2 || null,
-        created_at: now,
-        updated_at: now,
-      };
+      const [rows] = await pool.execute(
+        'SELECT * FROM products WHERE id = ? LIMIT 1',
+        [id]
+      );
 
-      await db
-        .collection('products')
-        .insertOne(product);
+      const product = rows[0];
 
       res.status(201).json({
         message:
@@ -250,7 +246,11 @@ router.post(
 
         product: {
           ...product,
+
+          _id: String(product.id),
+
           desc: product.description,
+
           imageUrl: getImageUrl(
             req,
             product.image
@@ -280,8 +280,6 @@ router.put(
   authenticateToken,
   async (req, res) => {
     try {
-      const db = await connectMongo();
-
       const productId = req.params.id;
 
       const {
@@ -306,39 +304,41 @@ router.put(
         });
       }
 
-      const updated_at = new Date()
-        .toISOString()
-        .replace('T', ' ')
-        .replace('Z', '');
+      const [result] = await pool.execute(
+        `UPDATE products
+        SET cat = ?,
+            tag = ?,
+            name = ?,
+            description = ?,
+            image = ?,
+            c1 = ?,
+            c2 = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+        [
+          cat,
+          tag,
+          name,
+          description,
+          image || null,
+          c1 || null,
+          c2 || null,
+          productId,
+        ]
+      );
 
-      const result = await db
-        .collection('products')
-        .updateOne(
-          { id: productId },
-          {
-            $set: {
-              cat,
-              tag,
-              name,
-              description,
-              image: image || null,
-              c1: c1 || null,
-              c2: c2 || null,
-              updated_at,
-            },
-          }
-        );
-
-      if (result.matchedCount === 0) {
+      if (result.affectedRows === 0) {
         return res.status(404).json({
           message: 'Product not found',
         });
       }
 
-      const updatedProduct =
-        await db.collection('products').findOne({
-          id: productId,
-        });
+      const [rows] = await pool.execute(
+        'SELECT * FROM products WHERE id = ? LIMIT 1',
+        [productId]
+      );
+
+      const updatedProduct = rows[0];
 
       res.json({
         message:
@@ -347,7 +347,7 @@ router.put(
         product: {
           ...updatedProduct,
 
-          _id: updatedProduct._id.toString(),
+          _id: String(updatedProduct.id),
 
           desc: updatedProduct.description,
 
@@ -380,17 +380,14 @@ router.delete(
   authenticateToken,
   async (req, res) => {
     try {
-      const db = await connectMongo();
-
       const productId = req.params.id;
 
-      const result = await db
-        .collection('products')
-        .deleteOne({
-          id: productId,
-        });
+      const [result] = await pool.execute(
+        'DELETE FROM products WHERE id = ?',
+        [productId]
+      );
 
-      if (result.deletedCount === 0) {
+      if (result.affectedRows === 0) {
         return res.status(404).json({
           message: 'Product not found',
         });

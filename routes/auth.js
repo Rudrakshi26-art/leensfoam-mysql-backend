@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-const { connectMongo } = require('../config/mongo');
+const { pool } = require('../config/db');
 
 const router = express.Router();
 
@@ -17,13 +17,13 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Connect to MongoDB
-    const db = await connectMongo();
+    // Find admin in MySQL
+    const [rows] = await pool.execute(
+      'SELECT id, name, email, password FROM admins WHERE email = ? LIMIT 1',
+      [email.trim().toLowerCase()]
+    );
 
-    // Find admin in MongoDB
-    const admin = await db.collection('admins').findOne({
-      email: email.trim().toLowerCase(),
-    });
+    const admin = rows[0];
 
     if (!admin) {
       return res.status(401).json({
@@ -55,7 +55,7 @@ router.post('/login', async (req, res) => {
     // Create JWT token
     const token = jwt.sign(
       {
-        id: admin._id.toString(),
+        id: admin.id,
         email: admin.email,
       },
       process.env.JWT_SECRET,
@@ -68,7 +68,7 @@ router.post('/login', async (req, res) => {
       message: 'Login successful',
       token,
       admin: {
-        id: admin._id.toString(),
+        id: admin.id,
         name: admin.name,
         email: admin.email,
       },

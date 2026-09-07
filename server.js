@@ -4,14 +4,14 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
-const connectDB = require('./config/db');
+const { connectDB } = require('./config/db');
 
 const authRoutes = require('./routes/auth');
 const productRoutes = require('./routes/products');
 
 const app = express();
 
-// Connect to MongoDB
+// Connect to // Connect to MySQL
 connectDB();
 
 const allowedOrigins = [
