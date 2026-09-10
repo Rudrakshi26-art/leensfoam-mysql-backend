@@ -89,7 +89,7 @@ const getImageUrl = (req, filename) => {
 router.get('/', async (req, res) => {
   try {
     const [products] = await pool.execute(
-      'SELECT * FROM products ORDER BY created_at DESC'
+      'SELECT * FROM products ORDER BY display_order ASC'
     );
 
     res.json(
@@ -192,6 +192,7 @@ router.post(
         c2,
       } = req.body;
 
+      // Validate required fields
       if (
         !id ||
         !cat ||
@@ -217,10 +218,31 @@ router.post(
         });
       }
 
+      // Get next display order
+      const [orderRows] = await pool.execute(
+        `SELECT COALESCE(MAX(display_order), 0) + 1 AS next_order
+         FROM products`
+      );
+
+      const nextOrder = orderRows[0].next_order;
+
+      // Add product
+      // is_new = 1 means NEW badge will be shown
       const [result] = await pool.execute(
         `INSERT INTO products
-        (id, cat, tag, name, description, image, c1, c2)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        (
+          id,
+          cat,
+          tag,
+          name,
+          description,
+          image,
+          c1,
+          c2,
+          display_order,
+          is_new
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           cat,
@@ -230,9 +252,12 @@ router.post(
           image || null,
           c1 || null,
           c2 || null,
+          nextOrder,
+          1,
         ]
       );
 
+      // Get newly created product
       const [rows] = await pool.execute(
         'SELECT * FROM products WHERE id = ? LIMIT 1',
         [id]
@@ -266,6 +291,65 @@ router.post(
       res.status(500).json({
         message: 'Failed to create product',
       });
+    }
+  }
+);
+
+
+// ===============================
+// REORDER PRODUCTS
+// ===============================
+
+router.put(
+  '/reorder',
+  authenticateToken,
+  async (req, res) => {
+    const connection = await pool.getConnection();
+
+    try {
+      const { productIds } = req.body;
+
+      if (
+        !Array.isArray(productIds) ||
+        productIds.length === 0
+      ) {
+        return res.status(400).json({
+          message:
+            'productIds must be a non-empty array',
+        });
+      }
+
+      await connection.beginTransaction();
+
+      for (let i = 0; i < productIds.length; i++) {
+        await connection.execute(
+          `UPDATE products
+           SET display_order = ?
+           WHERE id = ?`,
+          [i + 1, productIds[i]]
+        );
+      }
+
+      await connection.commit();
+
+      res.json({
+        message:
+          'Product order updated successfully',
+      });
+    } catch (error) {
+      await connection.rollback();
+
+      console.error(
+        'Reorder products error:',
+        error
+      );
+
+      res.status(500).json({
+        message:
+          'Failed to update product order',
+      });
+    } finally {
+      connection.release();
     }
   }
 );
@@ -404,7 +488,8 @@ router.delete(
       );
 
       res.status(500).json({
-        message: 'Failed to delete product',
+        message:
+          'Failed to delete product',
       });
     }
   }
