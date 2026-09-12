@@ -227,7 +227,7 @@ router.post(
       const nextOrder = orderRows[0].next_order;
 
       // Add product
-      // is_new = 1 means NEW badge will be shown
+     // New badge is OFF by default
       const [result] = await pool.execute(
         `INSERT INTO products
         (
@@ -253,7 +253,7 @@ router.post(
           c1 || null,
           c2 || null,
           nextOrder,
-          1,
+          0,
         ]
       );
 
@@ -374,6 +374,7 @@ router.put(
         image,
         c1,
         c2,
+        is_new,
       } = req.body;
 
       if (
@@ -397,6 +398,7 @@ router.put(
             image = ?,
             c1 = ?,
             c2 = ?,
+            is_new = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?`,
         [
@@ -407,6 +409,7 @@ router.put(
           image || null,
           c1 || null,
           c2 || null,
+          Number(is_new) === 1 ? 1 : 0,
           productId,
         ]
       );
