@@ -1,72 +1,73 @@
+
 const express = require('express');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 const router = express.Router();
 
 router.post('/', async (req, res) => {
   try {
-    const {
-      name,
-      phone,
-      email,
-      interest,
-      message,
-    } = req.body;
+    const { name, phone, email, interest, message } = req.body;
 
-    // Validate form
-    if (!name || !phone || !email || !message) {
+    // Validate required fields
+    if (
+      !name?.trim() ||
+      !phone?.trim() ||
+      !email?.trim() ||
+      !message?.trim()
+    ) {
       return res.status(400).json({
         success: false,
         message: 'Please fill all required fields.',
       });
     }
 
-    // Check environment variables
-    if (!process.env.MAIL_USER) {
-      console.error('MAIL_USER is missing');
-      return res.status(500).json({
+    // Basic email format validation
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailPattern.test(email)) {
+      return res.status(400).json({
         success: false,
-        message: 'MAIL_USER is not configured on the server.',
+        message: 'Please enter a valid email address.',
       });
     }
 
-    if (!process.env.MAIL_PASSWORD) {
-      console.error('MAIL_PASSWORD is missing');
+    // Check Resend configuration
+    if (!process.env.RESEND_API_KEY) {
+      console.error('RESEND_API_KEY is missing');
+
       return res.status(500).json({
         success: false,
-        message: 'MAIL_PASSWORD is not configured on the server.',
+        message: 'Email service is not configured.',
       });
     }
 
     if (!process.env.MAIL_TO) {
       console.error('MAIL_TO is missing');
+
       return res.status(500).json({
         success: false,
-        message: 'MAIL_TO is not configured on the server.',
+        message: 'Recipient email is not configured.',
       });
     }
 
-    // Create Gmail transporter
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.MAIL_USER,
-        pass: process.env.MAIL_PASSWORD,
-      },
-    });
+    if (!process.env.MAIL_FROM) {
+      console.error('MAIL_FROM is missing');
 
-    // Verify Gmail connection
-    await transporter.verify();
+      return res.status(500).json({
+        success: false,
+        message: 'Sender email is not configured.',
+      });
+    }
 
-    console.log('Gmail transporter verified successfully');
+    const resend = new Resend(process.env.RESEND_API_KEY);
 
-    // Send email
-    const info = await transporter.sendMail({
-      from: `"Leensfoam Website" <${process.env.MAIL_USER}>`,
-      to: process.env.MAIL_TO,
-      replyTo: email,
-      subject: `New Leensfoam Enquiry - ${interest || 'General Enquiry'}`,
-
+    const { data, error } = await resend.emails.send({
+      from: process.env.MAIL_FROM,
+      to: [process.env.MAIL_TO],
+      replyTo: email.trim(),
+      subject: `New Leensfoam Enquiry - ${
+        interest || 'General Enquiry'
+      }`,
       text: `
 New enquiry received from the Leensfoam website.
 
@@ -80,25 +81,27 @@ ${message}
       `,
     });
 
-    console.log('Email sent successfully:', info.messageId);
+    if (error) {
+      console.error('Resend email error:', error);
+
+      return res.status(502).json({
+        success: false,
+        message: 'Unable to send message. Please try again later.',
+      });
+    }
+
+    console.log('Contact email accepted by Resend:', data.id);
 
     return res.status(200).json({
       success: true,
       message: 'Message sent successfully.',
     });
-
   } catch (error) {
-    console.error('====================================');
-    console.error('CONTACT FORM ERROR');
-    console.error('Code:', error.code);
-    console.error('Command:', error.command);
-    console.error('Response:', error.response);
-    console.error('Message:', error.message);
-    console.error('====================================');
+    console.error('Contact form error:', error.message);
 
     return res.status(500).json({
       success: false,
-      message: 'Unable to send message.',
+      message: 'Unable to send message. Please try again later.',
     });
   }
 });
