@@ -21,6 +21,7 @@ const allowedOrigins = [
   'http://localhost:5175',
   'https://leensfoam-mysql.vercel.app',
   'https://leensfoam-website.vercel.app',
+  'https://leensfoam.com',
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
